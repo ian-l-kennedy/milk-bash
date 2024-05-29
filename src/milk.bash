@@ -78,16 +78,6 @@ function FORMAT_LOG() {
     echo "$formatted_log\n"
 }
 
-# Calls one of the individual log functions
-# Usage: LOG <log level> <log message>
-# Example: LOG INFO "My info log"
-function LOG() {
-    local level="$1"
-    local log="$2"
-    local log_function_name="${!level}"
-    $log_function_name "$log"
-}
-
 # All log levels call this handler
 # logging behavior
 # Usage: LOG_HANDLER_DEFAULT <log level> <log message>
@@ -199,23 +189,23 @@ function REQUIRE_GIT_HOOKS () {
 }
 
 function BASH_EVALUATED_JSON() {
+    local input_file_path=$1
     local json_compact
-    local temp_file
-    local evaluated_value
     local key
     local value
     local value_type
-    local input_file_path
-    input_file_path=$1
+    local first_item=true
 
     if [ -z "$input_file_path" ]; then
         ERROR "Input JSON file path is required."
         return 1
     fi
 
+    local is_test=false
     if [[ " $* " =~ " IS_TEST " ]]; then
+        is_test=true
         DEBUG "Input File Contents:"
-        DEBUG "$(cat $input_file_path)"
+        DEBUG "$(cat "$input_file_path")"
     fi
 
     json_compact=$(jq -Scr '.' "$input_file_path")
@@ -224,72 +214,54 @@ function BASH_EVALUATED_JSON() {
         return 1
     fi
 
-    if [[ " $* " =~ " IS_TEST " ]]; then
+    if $is_test; then
         DEBUG "Valid JSON input contents:"
-        DEBUG "$(jq -Scr '.' $input_file_path)"
+        DEBUG "$(jq -Scr '.' "$input_file_path")"
     fi
 
     readarray -t items_array < <(jq -Scr 'to_entries | .[]' "$input_file_path")
     if [ $? -ne 0 ]; then
         ERROR "Error in jq reading JSON to_entries as array."
         return 1
-    else
-        if [[ " $* " =~ " IS_TEST " ]]; then
-            DEBUG "items_array from to_entries: ${items_array[@]}"
-        fi
+    fi
+
+    if $is_test; then
+        DEBUG "items_array from to_entries: ${items_array[@]}"
     fi
 
     echo '{'
-    local first_item=true
 
     for item in "${items_array[@]}"; do
-        key=$(echo "$item" | jq -r '.key')
-        if [ $? -ne 0 ]; then
-            ERROR "Error in jq extracting key."
-            return 1
-        fi
+        key=$(jq -r '.key' <<< "$item")
+        value=$(jq -r '.value' <<< "$item")
+        value_type=$(jq -r '.value | type' <<< "$item")
 
-        value=$(echo "$item" | jq -r '.value')
-        if [ $? -ne 0 ]; then
-            ERROR "Error in jq extracting value."
-            return 1
-        fi
-
-        value_type=$(echo "$item" | jq -r '.value | type')
-        if [ $? -ne 0 ]; then
-            ERROR "Error in jq determining value type."
-            return 1
-        fi
-
-        # Disallow boolean and integer types
-        if [ "$value_type" == "boolean" ] || [ "$value_type" == "number" ]; then
+        if [[ "$value_type" == "boolean" || "$value_type" == "number" ]]; then
             ERROR "Boolean and integer types are not supported. Key: '$key'"
             return 1
         fi
 
-        # Add a comma before each item except the first
         if [ "$first_item" = true ]; then
             first_item=false
         else
             echo ','
         fi
 
-        # Handle Bash command evaluation within the value
-        if [ "$value_type" == "object" ]; then
+        if [[ "$value_type" == "object" ]]; then
             ERROR "Nested JSON Objects are not supported"
             return 1
-        elif [ "$value_type" == "array" ]; then
-            # Value is a JSON array, process each element
-            echo -n "\"$key\":["
-            local array_first_item=true
-            readarray -t array_items < <(echo "$value" | jq -c '.[]')
-            if [ $? -ne 0 ]; then
-                DEBUG "Error in jq processing array."
+        elif [[ "$value_type" == "array" ]]; then
+            if jq -e '.[]. | arrays, objects' <<< "$value" >/dev/null; then
+                ERROR "Nested arrays and nested objects are not supported. Key: '$key'"
                 return 1
             fi
 
+            echo -n "\"$key\":["
+            local array_first_item=true
+            readarray -t array_items < <(jq -c '.[]' <<< "$value")
+
             for array_item in "${array_items[@]}"; do
-                item_type=$(echo "$array_item" | jq -r 'type')
+                item_type=$(jq -r 'type' <<< "$array_item")
                 if [ "$item_type" != "string" ]; then
                     ERROR "Only string values are allowed in arrays. Key: '$key'"
                     return 1
@@ -301,9 +273,10 @@ function BASH_EVALUATED_JSON() {
                     echo -n ','
                 fi
 
-                if [[ " $* " =~ " IS_TEST " ]]; then
+                if $is_test; then
                     DEBUG "Evaluating array item: $array_item"
                 fi
+
                 evaluated_value=$(eval echo "$array_item" | jq -R .)
                 if [ $? -ne 0 ]; then
                     ERROR "Error in evaluating array item."
@@ -313,10 +286,10 @@ function BASH_EVALUATED_JSON() {
             done
             echo -n ']'
         else
-            if [[ " $* " =~ " IS_TEST " ]]; then
+            if $is_test; then
                 DEBUG "Evaluating value: $value"
             fi
-            # Fail if any escaped character other than \" is found
+
             if echo "$value" | egrep -q '\\[^"]'; then
                 ERROR "Only escaped double quotes (\\\") are allowed. Key: '$key'"
                 return 1

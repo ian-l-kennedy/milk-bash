@@ -71,6 +71,18 @@ load 'test_helper.bash'
 ################################################################################
 ################################################################################
 
+@test "test_nested_arrays" {
+    test_init
+    local json_string='{"key1":["value1", ["nested_value1", "nested_value2"], "value2"]}'
+    echo $json_string > nested_arrays.json
+    run BASH_EVALUATED_JSON nested_arrays.json IS_TEST
+    [ "$status" -ne 0 ]
+    rm nested_arrays.json
+}
+
+################################################################################
+################################################################################
+
 @test "test_bash_cmnd_evaluation_in_values" {
     cd "$BATS_TEST_DIRNAME"
     source ../src/milk.bash
@@ -537,15 +549,6 @@ load 'test_helper.bash'
     run BASH_EVALUATED_JSON empty_array.json IS_TEST
     [ "$status" -eq 0 ]
     rm empty_array.json
-}
-
-@test "test_nested_arrays" {
-    test_init
-    local json_string='{"key1":["value1", ["nested_value1", "nested_value2"], "value2"]}'
-    echo $json_string > nested_arrays.json
-    run BASH_EVALUATED_JSON nested_arrays.json IS_TEST
-    [ "$status" -ne 0 ]
-    rm nested_arrays.json
 }
 
 @test "test_array_simple" {
