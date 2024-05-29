@@ -1,0 +1,61 @@
+name: "Test and Coverage"
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        test_target_path:
+          - test_bash_in_json.bats
+          - test_others.bats
+          - test_require_command.bats
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git build-essential cmake curl libcurl4-openssl-dev libdw-dev libiberty-dev zlib1g-dev
+      - name: Install Bats from source
+        run: |
+          git clone https://github.com/bats-core/bats-core.git
+          cd bats-core
+          sudo ./install.sh /usr/local
+          cd ..
+          rm -rf bats-core
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: head
+      - name: Install Ruby dependencies
+        run: |
+          gem install bundler
+          bundle install
+      - name: Install bashcov
+        run: gem install bashcov
+      - name: Run bats tests with bashcov
+        run: |
+          echo "Starting test execution..."
+          mkdir -p coverage
+          bashcov --root coverage bats test/${{ matrix.test_target_path }}
+          echo "Test execution and coverage report generation completed."
+          echo "Listing coverage directory contents:"
+          ls -al coverage
+      - name: Upload reports to Codecov
+        uses: codecov/codecov-action@v4
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          fail_ci_if_error: true
+          file: coverage/coverage.xml
+      - name: Display Gemfile.lock
+        run: |
+          echo "Displaying contents of Gemfile.lock:"
+          cat Gemfile.lock
