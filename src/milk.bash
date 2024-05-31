@@ -236,6 +236,12 @@ function BASH_EVALUATED_JSON() {
         value=$(jq -r '.value' <<< "$item")
         value_type=$(jq -r '.value | type' <<< "$item")
 
+        if $is_test; then
+            DEBUG "key: ${key}"
+            DEBUG "value: ${value}"
+            DEBUG "value_type: ${value_type}"
+        fi
+
         if [[ "$value_type" == "boolean" || "$value_type" == "number" ]]; then
             ERROR "Boolean and integer types are not supported. Key: '$key'"
             return 1
@@ -304,5 +310,160 @@ function BASH_EVALUATED_JSON() {
         fi
     done
     echo '}'
+    return 0
+}
+
+function BASH_EVALUATED_YAML() {
+    local input_file_path=$1
+    local key
+    local value
+    local value_type
+    local first_item=true
+
+    if [ -z "$input_file_path" ]; then
+        ERROR "Input YAML file path is required."
+        return 1
+    fi
+
+    if [ ! -s "$input_file_path" ]; then
+        echo ""
+        return 0
+    fi
+
+    local is_test=false
+    if [[ " $* " =~ " IS_TEST " ]]; then
+        is_test=true
+        DEBUG "Input File Contents:"
+        echo "$(cat "$input_file_path")"
+    fi
+
+    yq '.' "$input_file_path" &> /dev/null
+    if [ $? -ne 0 ]; then
+        ERROR "Error in yq processing YAML."
+        return 1
+    fi
+
+    local yq_output
+    yq_output=$(yq eval '. | keys | .[]' "$input_file_path")
+    if [ $? -ne 0 ]; then
+        ERROR "Error in yq reading YAML keys as array."
+        return 1
+    fi
+
+    readarray -t keys_array < <(yq eval '. | keys | .[]' "$input_file_path")
+    if [ $? -ne 0 ]; then
+        ERROR "Error in yq reading YAML keys as array."
+        return 1
+    fi
+
+    if $is_test; then
+        DEBUG "keys_array from keys: ${keys_array[*]}"
+    fi
+
+    for key in "${keys_array[@]}"; do
+        if [[ "$key" =~ \\ ]]; then
+            ERROR "Escaped characters are not allowed in keys."
+            return 1
+        fi
+
+        value=$(yq eval ".\"$key\"" "$input_file_path")
+        value_type=$(yq eval ".\"$key\" | type" "$input_file_path")
+
+        if $is_test; then
+            DEBUG "key: ${key}"
+            DEBUG "value: ${value}"
+            DEBUG "value_type: ${value_type}"
+        fi
+
+        if [ "$value_type" == "!!str" ]; then
+            value=$(echo "$value" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
+        fi
+
+        if [[ "$value" =~ \\ && ! "$value" =~ \\$ && ! "$value" =~ \\\" ]]; then
+            ERROR "Escaped characters other than \$ and \" are not allowed."
+            return 1
+        fi
+
+        if [[ "$value" =~ \\[tnr] ]]; then
+            ERROR "Escaped whitespace characters (\\t, \\n, \\r) are not allowed."
+            return 1
+        fi
+
+        if [ "$first_item" = true ]; then
+            first_item=false
+        else
+            echo -e '\n'
+        fi
+
+        if [[ "$value_type" == "!!bool" || "$value_type" == "!!int" || "$value_type" == "!!float" ]]; then
+            ERROR "Boolean, integer, and float types are not supported. Key: '$key'. Type: '$value_type'"
+            return 1
+        elif [[ "$value_type" == "!!map" ]]; then
+            ERROR "Nested YAML Objects/Maps are not supported"
+            return 1
+        elif [[ "$value_type" == "!!seq" ]]; then
+            echo "$key:"
+            readarray -t parsed_items_array < <(echo "${value}" | yq eval '. | .[]')
+            if [ $? -ne 0 ]; then
+                ERROR "parsed_items_array: Error in yq reading YAML keys as array."
+                return 1
+            fi
+
+            if $is_test; then
+                DEBUG "parsed_items_array from keys: ${parsed_items_array[*]}"
+            fi
+
+            for array_item in "${parsed_items_array[@]}"; do
+                parsed_seq_value=$array_item
+                parsed_seq_value_type=$(yq eval 'type' <<< "$array_item")
+
+                if $is_test; then
+                    DEBUG "parsed_seq_value: ${parsed_seq_value}"
+                    DEBUG "parsed_seq_value_type: ${parsed_seq_value_type}"
+                fi
+
+                if [[ "$parsed_seq_value_type" == "!!bool" || "$parsed_seq_value_type" == "!!int" || "$parsed_seq_value_type" == "!!float" || "$parsed_seq_value_type" == "!!map" || "$parsed_seq_value_type" == "!!seq" ]]; then
+                    ERROR "We are already in a sequence/array, so the only allowed type is !!str. Instead type is: $parsed_seq_value_type"
+                    return 1
+                fi
+
+                if [ "$parsed_seq_value_type" == "!!str" ]; then
+                    parsed_seq_value=$(echo "$parsed_seq_value" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g')
+                fi
+
+                if [[ "$parsed_seq_value" =~ \\ && ! "$parsed_seq_value" =~ \\$ && ! "$parsed_seq_value" =~ \\\" ]]; then
+                    ERROR "Escaped characters other than \$ and \" are not allowed."
+                    return 1
+                fi
+
+                if [[ "$parsed_seq_value" =~ \\[tnr] ]]; then
+                    ERROR "Escaped whitespace characters (\\t, \\n, \\r) are not allowed."
+                    return 1
+                fi
+
+                if $is_test; then
+                    DEBUG "Inside sequence/array item - evaluating value: $parsed_seq_value"
+                fi
+
+                evaluated_value=$(eval echo "$parsed_seq_value")
+                if [ $? -ne 0 ]; then
+                    ERROR "Error in evaluating value."
+                    return 1
+                fi
+                echo "  - $evaluated_value"
+            done
+        else
+            if $is_test; then
+                DEBUG "Evaluating value: $value"
+            fi
+
+            evaluated_value=$(eval echo "$value")
+            if [ $? -ne 0 ]; then
+                ERROR "Error in evaluating value."
+                return 1
+            fi
+            echo "$key: $evaluated_value"
+        fi
+    done
     return 0
 }

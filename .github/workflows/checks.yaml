@@ -14,6 +14,7 @@ jobs:
       matrix:
         test_target_path:
           - test_bash_in_json.bats
+          - test_bash_in_yaml.bats
           - test_others.bats
           - test_require_command.bats
     steps:
@@ -31,6 +32,10 @@ jobs:
           sudo ./install.sh /usr/local
           cd ..
           rm -rf bats-core
+      - name: Install yq from binary
+        run: |
+          sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
+          sudo chmod +x /usr/bin/yq
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: head
