@@ -467,3 +467,53 @@ function BASH_EVALUATED_YAML() {
     done
     return 0
 }
+
+# Only if inside of a git repository, set REPO and REPO_N
+git rev-parse --is-inside-work-tree >/dev/null 2>&1
+if [[ $? -eq 0 ]]; then
+    REPO=$(git rev-parse --show-toplevel)
+    REPO_N=$(basename "$REPO")
+fi
+
+# milk standard versioning of a project for artifact publication
+function GET_VERSION_NUMBER_JSON () {
+    REQUIRE_COMMAND "jq"
+    REQUIRE_COMMAND "git"
+    if [ -n "${1:-}" ]; then
+        current_branch="$1"
+    else
+        current_branch=$(git rev-parse --abbrev-ref HEAD)
+        if [ $? -ne 0 ]; then
+            ERROR "Failed to determine the current git branch."
+            exit 1
+        fi
+    fi
+
+    file_name=${REPO}/version.json
+
+    if [ ! -f "${file_name}" ]; then
+        ERROR "The version.json file does not exist at the top of the current git repository"
+        exit 1
+    fi
+
+    version_from_file_major=$(cat "$file_name" | jq -rc '.major')
+    version_from_file_minor=$(cat "$file_name" | jq -rc '.minor')
+    version_from_file_patch=$(cat "$file_name" | jq -rc '.patch')
+
+    num_seconds_in_ten_minutes_timespan=600
+
+    version_from_epoch_major=0
+    version_from_epoch_minor=0
+    version_from_epoch_patch=$(echo $(($(date +%s) / num_seconds_in_ten_minutes_timespan)))
+
+    if [ $? -ne 0 ]; then
+        ERROR "Failed to calculate the EPOCH seconds divided by 10 minutes timespan in seconds"
+        exit 1
+    fi
+
+    if [ "${current_branch}" == "main" ]; then
+        echo "${version_from_file_major}.${version_from_file_minor}.${version_from_file_patch}"
+    else
+        echo "${version_from_epoch_major}.${version_from_epoch_minor}.${version_from_epoch_patch}"
+    fi
+}

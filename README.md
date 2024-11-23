@@ -8,7 +8,7 @@
 
 All of the bash defines that could be project agnostic
 
-### Guidelines for Users
+### By following these guidelines, users can ensure their JSON input is properly formatted and compatible with the `BASH_EVALUATED_JSON` function.
 
 1. **Escaped Double Quotes:**
    - Ensure all double quotes within JSON values are escaped (i.e., `\"`).
@@ -27,6 +27,3 @@ All of the bash defines that could be project agnostic
 
 5. **Nested Structures:**
    - Nested JSON objects and nested arrays are not allowed.
-
-By following these guidelines, users can ensure their JSON input is properly formatted and compatible with the `BASH_EVALUATED_JSON` function.
-
