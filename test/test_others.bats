@@ -148,3 +148,84 @@
     set -e
     [ "$exit_code" -ne 0 ]
 }
+
+@test "test_repo_variables" {
+    set -e
+    source $(git rev-parse --show-toplevel)/src/milk.bash
+    cd "$BATS_TEST_DIRNAME"
+    # Check that REPO is defined and not empty
+    [ -n "${REPO}" ]
+    # Check that REPO_N is defined and not empty
+    [ -n "${REPO_N}" ]
+}
+
+@test "test_version_json" {
+    set -e
+    source $(git rev-parse --show-toplevel)/src/milk.bash
+    cd "$BATS_TEST_DIRNAME"
+    versions_json_file=${REPO}/version.json
+    rm -f ${versions_json_file}
+
+    # Define expected version components
+    expects_file_major=3
+    expects_file_minor=2
+    expects_file_patch=1
+
+    # Create the version JSON file
+    local file_string='{"major":"'${expects_file_major}'", "minor":"'${expects_file_minor}'", "patch":"'${expects_file_patch}'"}'
+    echo -e "$file_string" > ${versions_json_file}
+
+    # Get the version number from the script
+    version_number="$(GET_VERSION_NUMBER_JSON)"
+
+    # Check if the version_number matches the pattern \d+.\d+.\d+
+    echo "$version_number" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+
+    # Extract major, minor, and patch using tr
+    actual_major=$(echo "$version_number" | cut -d. -f1 | tr -d '[:space:]')
+    actual_minor=$(echo "$version_number" | cut -d. -f2 | tr -d '[:space:]')
+    actual_patch=$(echo "$version_number" | cut -d. -f3 | tr -d '[:space:]')
+
+    # Define expected version components
+    expects_epoch_major=0
+    expects_epoch_minor=0
+    expects_epoch_patch=${actual_patch}
+
+    current_branch=$(git rev-parse --abbrev-ref HEAD)
+
+    if [ "${current_branch}" == "main" ]; then
+        [ "$actual_major" -eq "$expects_file_major" ]
+        [ "$actual_minor" -eq "$expects_file_minor" ]
+        [ "$actual_patch" -eq "$expects_file_patch" ]
+    else
+        [ "$actual_major" -eq "$expects_epoch_major" ]
+        [ "$actual_minor" -eq "$expects_epoch_minor" ]
+        [ "$actual_patch" -eq "$expects_epoch_patch" ]
+    fi
+
+    version_number="$(GET_VERSION_NUMBER_JSON main)"
+
+    echo "$version_number" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+
+    actual_major=$(echo "$version_number" | cut -d. -f1 | tr -d '[:space:]')
+    actual_minor=$(echo "$version_number" | cut -d. -f2 | tr -d '[:space:]')
+    actual_patch=$(echo "$version_number" | cut -d. -f3 | tr -d '[:space:]')
+
+    [ "$actual_major" -eq "$expects_file_major" ]
+    [ "$actual_minor" -eq "$expects_file_minor" ]
+    [ "$actual_patch" -eq "$expects_file_patch" ]
+
+    version_number="$(GET_VERSION_NUMBER_JSON not_main)"
+
+    echo "$version_number" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+
+    actual_major=$(echo "$version_number" | cut -d. -f1 | tr -d '[:space:]')
+    actual_minor=$(echo "$version_number" | cut -d. -f2 | tr -d '[:space:]')
+    actual_patch=$(echo "$version_number" | cut -d. -f3 | tr -d '[:space:]')
+
+    expects_epoch_patch=${actual_patch}
+
+    [ "$actual_major" -eq "$expects_epoch_major" ]
+    [ "$actual_minor" -eq "$expects_epoch_minor" ]
+    [ "$actual_patch" -eq "$expects_epoch_patch" ]
+}
